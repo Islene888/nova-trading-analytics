@@ -1,0 +1,38 @@
+name: Daily Analysis
+
+on:
+  schedule:
+    # 9:00 AM PDT (UTC-7) = 16:00 UTC, weekdays
+    - cron: '0 16 * * 1-5'
+  workflow_dispatch:  # allow manual trigger from GitHub UI
+
+permissions:
+  contents: write
+
+jobs:
+  run-analysis:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Configure git identity
+        run: |
+          git config user.name "Nova Trading Bot"
+          git config user.email "islenezhao@gmail.com"
+
+      - name: Run daily analysis
+        run: python scripts/daily_run.py

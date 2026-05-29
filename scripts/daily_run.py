@@ -129,11 +129,12 @@ def run():
         return
     print("  ✓ Committed")
 
-    remote_url = (
-        f"https://{GITHUB_USER}:{GITHUB_TOKEN}"
-        f"@github.com/{GITHUB_USER}/{REPO_NAME}.git"
-    )
-    git(["remote", "set-url", "origin", remote_url])
+    if GITHUB_TOKEN:
+        remote_url = (
+            f"https://{GITHUB_USER}:{GITHUB_TOKEN}"
+            f"@github.com/{GITHUB_USER}/{REPO_NAME}.git"
+        )
+        git(["remote", "set-url", "origin", remote_url])
     push_code, push_out = git(["push", "origin", "main"])
     if push_code == 0:
         print("  ✓ Pushed to GitHub")
