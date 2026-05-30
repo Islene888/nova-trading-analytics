@@ -122,9 +122,14 @@ def generate_insights(trends_data: dict) -> List[str]:
     rising = all_momentum[:3]
     falling = all_momentum[-3:][::-1]
 
-    insights.append("**Top Rising Keywords (12-week momentum):**")
-    for cat, kw, pct in rising:
-        if pct > 0:
+    actually_rising = [x for x in rising if x[2] > 0]
+    if actually_rising:
+        insights.append("**Top Rising Keywords (12-week momentum):**")
+        for cat, kw, pct in actually_rising:
+            insights.append(f"- `{kw}` ({cat}): {pct:+.1f}% vs 12-week average")
+    else:
+        insights.append("**Relative Outperformers (least-negative 12-week momentum):**")
+        for cat, kw, pct in rising:
             insights.append(f"- `{kw}` ({cat}): {pct:+.1f}% vs 12-week average")
     insights.append("")
 

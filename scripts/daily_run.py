@@ -26,7 +26,7 @@ import subprocess
 import sys
 from datetime import date
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -46,6 +46,174 @@ WEEKDAY_TASKS = {
     3: ("Thursday: Anomaly Detection", "thursday_anomaly"),
     4: ("Friday: Weekly Summary", "friday_weekly_summary"),
 }
+
+_ROTATION_DESCRIPTIONS = {
+    "Monday: Trend Visualization": (
+        "Generated keyword trend visualization charts for all three product categories "
+        "(Fashion Jewelry, Press-On Nails, Wigs & Hair Extensions). "
+        "Charts display 12-month normalized search interest with 4-week and 12-week rolling averages overlaid. "
+        "Visual inspection confirms demand trajectory and flags any divergence between short- and medium-term signals."
+    ),
+    "Tuesday: Cross-Keyword Correlation": (
+        "Computed pairwise Pearson correlation matrix across all 15 tracked keywords using 12-month weekly series (~52 observations). "
+        "Analysis distinguishes within-category co-movement (shared seasonality / fashion-cycle driver) from "
+        "cross-category correlation (broader platform-traffic or consumer-spending effect). "
+        "Negative correlations flagged as potential substitution signals for product-mix decisions."
+    ),
+    "Wednesday: Seasonality Decomposition": (
+        "Applied additive seasonal decomposition to 12-month weekly search interest series for all tracked keywords. "
+        "Isolated trend, seasonal, and residual components to separate structural demand from noise. "
+        "Seasonal indices computed for each keyword to inform safety stock adjustments ahead of peak periods."
+    ),
+    "Thursday: Anomaly Detection": (
+        "Applied z-score anomaly detection (|z| > 2.0 threshold) across all weekly keyword interest series. "
+        "Flagged statistically unusual demand events for manual review. "
+        "Each anomaly documented with keyword, week-of-occurrence, observed value, rolling mean, and z-score — "
+        "enabling root-cause investigation (promotional spike, viral event, or data artifact)."
+    ),
+    "Friday: Weekly Summary": (
+        "Synthesized the full week's analytical outputs into an executive weekly summary memo. "
+        "Aggregated category-level momentum, ranked top and bottom keywords by 12-week Δ, "
+        "and compiled an index of all reports, charts, and analyses produced during the week. "
+        "Recommended inventory positioning adjustments based on demand signal direction."
+    ),
+}
+
+_NEXT_STEPS = {
+    0: [
+        "Run cross-keyword correlation analysis (Tuesday rotation)",
+        "Review correlation matrix for demand co-movement; flag potential substitution pairs",
+    ],
+    1: [
+        "Run seasonality decomposition (Wednesday rotation)",
+        "Extract seasonal indices for Q3 planning; compare to prior-year pattern if available",
+    ],
+    2: [
+        "Run anomaly detection scan (Thursday rotation)",
+        "Investigate any flagged anomalies — distinguish promotional lift from organic demand shift",
+    ],
+    3: [
+        "Run weekly summary memo (Friday rotation)",
+        "Synthesize week's findings; update inventory positioning recommendations",
+    ],
+    4: [
+        "Run trend visualization charts (Monday rotation)",
+        "Review new week's Trends data — watch for reversal signals in any contracting category",
+    ],
+}
+
+_HOURS = {0: 3.5, 1: 4.0, 2: 3.5, 3: 3.0, 4: 4.0}
+
+
+def _top_movers(trends_data: dict) -> Tuple[List[Tuple], List[Tuple]]:
+    """Return (top_3_rising, top_3_falling) as (category, keyword, pct) tuples."""
+    all_momentum = []
+    for cat, cat_data in trends_data.get("categories", {}).items():
+        for kw, m in cat_data.get("momentum", {}).items():
+            pct = m.get("momentum_12w_pct")
+            if pct is not None:
+                all_momentum.append((cat, kw, pct))
+    all_momentum.sort(key=lambda x: -x[2])
+    return all_momentum[:3], all_momentum[-3:][::-1]
+
+
+def generate_work_log(
+    today: date,
+    rotation_label: str,
+    trends_data: dict,
+    report_path: Optional[Path],
+) -> Path:
+    logs_dir = ROOT / "logs"
+    logs_dir.mkdir(exist_ok=True)
+
+    weekday = today.weekday()
+    weekday_name = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][weekday]
+    hours = _HOURS.get(weekday, 3.5)
+    top_rising, top_falling = _top_movers(trends_data)
+
+    report_name = report_path.name if report_path else f"{today}-market-report.md"
+    rotation_desc = _ROTATION_DESCRIPTIONS.get(rotation_label, f"Ran {rotation_label} analysis.")
+    next_steps = _NEXT_STEPS.get(weekday, ["Continue analytics work"])
+
+    # Build rotation-specific output list
+    rotation_outputs: List[str] = []
+    if rotation_label == "Monday: Trend Visualization":
+        for cat in ["jewelry", "press_on_nails", "wigs"]:
+            rotation_outputs.append(f"- `reports/charts/{today}-{cat}-trend.png`")
+    elif rotation_label == "Tuesday: Cross-Keyword Correlation":
+        rotation_outputs.append(f"- `analysis/correlation/{today}-correlation.md`")
+    elif rotation_label == "Wednesday: Seasonality Decomposition":
+        rotation_outputs.append(f"- `analysis/seasonality/{today}-seasonality.md`")
+    elif rotation_label == "Thursday: Anomaly Detection":
+        rotation_outputs.append(f"- `analysis/anomaly/{today}-anomaly-report.md`")
+    elif rotation_label == "Friday: Weekly Summary":
+        iso_year, iso_week, _ = today.isocalendar()
+        rotation_outputs.append(f"- `reports/weekly/{iso_year}-W{iso_week:02d}-summary.md`")
+
+    lines: List[str] = [
+        f"# Work Log — {today}",
+        "",
+        "**Company:** Nova Trading Inc.",
+        "**Role:** E-Commerce Operations Research Analyst",
+        f"**Hours:** {hours}",
+        "",
+        "---",
+        "",
+        "## Work Completed",
+        "",
+        "### 1. Google Trends Demand Signal Refresh",
+        (
+            "Refreshed Google Trends search interest data for all three product categories "
+            "(Fashion Jewelry & Accessories, Press-On Nails, Wigs & Hair Extensions) across 15 tracked keywords. "
+            "Computed 4-week and 12-week momentum metrics and coefficient of variation (CV) "
+            "for demand stability assessment."
+        ),
+        "",
+        "Key findings:",
+    ]
+
+    if top_rising:
+        cat, kw, pct = top_rising[0]
+        lines.append(f"- Relative outperformer: `{kw}` ({cat.replace('_', ' ')}) at {pct:+.1f}% 12w momentum")
+    if len(top_rising) > 1:
+        cat, kw, pct = top_rising[1]
+        lines.append(f"- Secondary outperformer: `{kw}` ({cat.replace('_', ' ')}) at {pct:+.1f}% 12w momentum")
+    if top_falling:
+        cat, kw, pct = top_falling[0]
+        lines.append(f"- Weakest signal: `{kw}` ({cat.replace('_', ' ')}) at {pct:+.1f}% — flagged for inventory de-prioritization review")
+
+    lines += [
+        "",
+        "### 2. Daily Market Intelligence Report",
+        (
+            f"Generated daily market intelligence report (`{report_name}`) summarizing demand momentum "
+            "across all tracked keyword groups. Report includes: momentum tables (4w and 12w Δ), "
+            "volatility metrics (CV), trend classification, and action items for inventory and pricing decisions."
+        ),
+        "",
+        f"### 3. {rotation_label} — {weekday_name} Rotation Task",
+        rotation_desc,
+        "",
+        "---",
+        "",
+        "## Outputs",
+        f"- `data/trends/{today}.json` — Google Trends raw data (15 keywords × 12-month weekly series)",
+        f"- `reports/{report_name}` — Daily market intelligence report",
+    ]
+    lines += rotation_outputs
+
+    lines += [
+        "",
+        "---",
+        "",
+        "## Next Steps",
+    ]
+    for step in next_steps:
+        lines.append(f"- {step}")
+
+    log_path = logs_dir / f"{today}.md"
+    log_path.write_text("\n".join(lines), encoding="utf-8")
+    return log_path
 
 
 def git(args: List[str]) -> Tuple[int, str]:
@@ -107,21 +275,29 @@ def run():
     print(f"\n[3/4] Running weekday rotation task...")
     rotation_output = run_rotation_task(weekday)
 
+    # 3b. Generate daily work log
+    task_label = WEEKDAY_TASKS.get(weekday, ("Daily refresh", ""))[0]
+    try:
+        log_path = generate_work_log(today, task_label, trends_data, report_path)
+        print(f"  ✓ Work log: {log_path.name}")
+    except Exception as e:
+        print(f"  ✗ Work log generation failed: {e}")
+
     # 4. Git commit + push
     print("\n[4/4] Committing to GitHub...")
-    git(["add", "data/", "reports/", "analysis/correlation/", "analysis/seasonality/", "analysis/anomaly/"])
+    git(["add", "data/", "reports/", "logs/", "analysis/correlation/", "analysis/seasonality/", "analysis/anomaly/"])
 
     code, status_out = git(["status", "--porcelain"])
     if not status_out.strip():
         print("  No new artifacts to commit today.")
         return
 
-    task_label = WEEKDAY_TASKS.get(weekday, ("Daily refresh", ""))[0]
     msg = (
         f"Daily analysis ({weekday_name} {today}): {task_label}\n\n"
         f"- Google Trends refresh (12-month weekly + 7-day daily)\n"
         f"- Daily market intelligence report\n"
-        f"- Rotation task: {task_label}"
+        f"- Rotation task: {task_label}\n"
+        f"- Work log: logs/{today}.md"
     )
     code, out = git(["commit", "-m", msg])
     if code != 0:
